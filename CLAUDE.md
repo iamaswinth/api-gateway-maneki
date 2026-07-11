@@ -71,3 +71,11 @@ pytest
 ```
 
 Docs at `http://localhost:8080/docs`.
+
+## Tests need a real Postgres
+
+`tests/conftest.py`'s autouse fixture truncates `tenant_config` before every test — there's
+no mocked DB layer. Point `GATEWAY_DATABASE_URL` at any reachable Postgres (the same local
+Docker instance the other two services use is fine) before running `pytest`; consider
+setting `GATEWAY_DB_SCHEMA` to something like `gateway_test` to avoid clobbering dev data in
+the shared `gateway` schema.

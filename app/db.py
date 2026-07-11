@@ -5,6 +5,7 @@ gateway never reads or writes their tables — only `db_schema` (default
 `gateway`), mirroring voice_runtime's `voice`-schema isolation.
 """
 
+import json
 from typing import Optional
 from urllib.parse import quote
 
@@ -23,6 +24,11 @@ def _dsn_with_schema() -> str:
 
 async def _init_connection(conn: asyncpg.Connection) -> None:
     await conn.execute(f"CREATE SCHEMA IF NOT EXISTS {settings.db_schema}")
+    # Transparent jsonb <-> Python dict roundtrip (greeting, crm_integration),
+    # same pattern as the ingestion service's app/db.py.
+    await conn.set_type_codec(
+        "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+    )
 
 
 async def get_pool() -> asyncpg.Pool:
