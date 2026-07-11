@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth.clerk import OwnerIdentity, require_owner
+from ..widget.tenant_cache import invalidate as invalidate_tenant_cache
 from . import store
 from .models import TenantConfig, TenantCreate, TenantUpdate
 
@@ -39,6 +40,7 @@ async def update(
     tenant = await store.update_tenant(tenant_id, owner.user_id, data)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
+    invalidate_tenant_cache(tenant_id)
     return tenant
 
 
@@ -49,6 +51,7 @@ async def publish(
     tenant = await store.set_published(tenant_id, owner.user_id, True)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
+    invalidate_tenant_cache(tenant_id)
     return tenant
 
 
@@ -59,4 +62,5 @@ async def unpublish(
     tenant = await store.set_published(tenant_id, owner.user_id, False)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
+    invalidate_tenant_cache(tenant_id)
     return tenant
