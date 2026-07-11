@@ -7,14 +7,28 @@ the room and the visitor joins an empty room.
 """
 
 import json
+import re
 import uuid
 from datetime import timedelta
+from typing import Optional
 
 from livekit.api import AccessToken, RoomAgentDispatch, RoomConfiguration, VideoGrants
 
 from ..config import settings
 
 VOICE_RUNTIME_AGENT_NAME = "voice-runtime"
+
+# Matches "tenant-{tenant_id}-{uuid4}" — tenant_id may itself contain hyphens,
+# so the uuid4's fixed 36-char shape at the end is what anchors the split
+# (used by app/webhooks/routes.py to recover tenant_id from a room name).
+_ROOM_NAME_RE = re.compile(
+    r"^tenant-(?P<tenant_id>.+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+
+def parse_tenant_id(room_name: str) -> Optional[str]:
+    match = _ROOM_NAME_RE.match(room_name)
+    return match.group("tenant_id") if match else None
 
 
 def mint_widget_token(
