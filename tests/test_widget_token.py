@@ -103,3 +103,55 @@ async def test_valid_request_returns_well_formed_token():
     assert metadata["tenant_id"] == "acme"
     assert metadata["page_url"] == "https://acme.example.com/pricing"
     assert "visitor_id" in metadata
+
+
+async def test_session_id_passed_through_to_dispatch_metadata():
+    # Widget-supplied session_id becomes the voice runtime's thread_id, so a
+    # returning visitor (same sessionStorage session_id, new page/room)
+    # resumes the same conversation instead of starting fresh.
+    await _seed_tenant(published=True)
+    async with await _make_client() as client:
+        resp = await client.post(
+            "/widget/token",
+            json={"site_id": "acme", "session_id": "sess-abc-123"},
+            headers={"Origin": ALLOWED_ORIGIN},
+        )
+    assert resp.status_code == 200
+    claims = pyjwt.decode(
+        resp.json()["token"], config_module.settings.livekit_api_secret, algorithms=["HS256"]
+    )
+    metadata = json.loads(claims["roomConfig"]["agents"][0]["metadata"])
+    assert metadata["session_id"] == "sess-abc-123"
+
+
+async def test_missing_session_id_omitted_from_dispatch_metadata():
+    await _seed_tenant(published=True)
+    async with await _make_client() as client:
+        resp = await client.post(
+            "/widget/token", json={"site_id": "acme"}, headers={"Origin": ALLOWED_ORIGIN}
+        )
+    claims = pyjwt.decode(
+        resp.json()["token"], config_module.settings.livekit_api_secret, algorithms=["HS256"]
+    )
+    metadata = json.loads(claims["roomConfig"]["agents"][0]["metadata"])
+    assert "session_id" not in metadata
+
+
+async def test_cors_preflight_allows_arbitrary_origin():
+    # The per-tenant Origin check happens inside the handler (needs the
+    # request body's site_id, which a preflight never carries) — CORS itself
+    # must stay permissive so the browser lets the actual POST through to
+    # reach that check at all.
+    async with await _make_client() as client:
+        resp = await client.options(
+            "/widget/token",
+            headers={
+                "Origin": "https://some-owners-site.example.com",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+    assert resp.status_code == 200
+    # Literal "*", not origin-reflection — correct and sufficient since the
+    # widget's fetch never sends credentials (no cookie-based auth exists
+    # anywhere in this service).
+    assert resp.headers["access-control-allow-origin"] == "*"

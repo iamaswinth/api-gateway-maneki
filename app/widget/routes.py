@@ -25,6 +25,7 @@ class WidgetTokenRequest(BaseModel):
     site_id: str
     page_url: Optional[str] = None
     visitor_id: Optional[str] = None
+    session_id: Optional[str] = None
 
 
 class WidgetTokenResponse(BaseModel):
@@ -52,6 +53,9 @@ async def issue_widget_token(
         raise HTTPException(status_code=429, detail="Concurrent session limit reached")
 
     token, room = mint_widget_token(
-        tenant_id=data.site_id, page_url=data.page_url, visitor_id=data.visitor_id
+        tenant_id=data.site_id,
+        page_url=data.page_url,
+        visitor_id=data.visitor_id,
+        session_id=data.session_id,
     )
     return WidgetTokenResponse(token=token, livekit_url=settings.livekit_url, room=room)

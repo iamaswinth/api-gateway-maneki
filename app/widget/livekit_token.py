@@ -32,7 +32,11 @@ def parse_tenant_id(room_name: str) -> Optional[str]:
 
 
 def mint_widget_token(
-    *, tenant_id: str, page_url: str | None = None, visitor_id: str | None = None
+    *,
+    tenant_id: str,
+    page_url: str | None = None,
+    visitor_id: str | None = None,
+    session_id: str | None = None,
 ) -> tuple[str, str]:
     """Returns (jwt, room_name)."""
     room_name = f"tenant-{tenant_id}-{uuid.uuid4()}"
@@ -44,6 +48,8 @@ def mint_widget_token(
     }
     if page_url:
         dispatch_metadata["page_url"] = page_url
+    if session_id:
+        dispatch_metadata["session_id"] = session_id
 
     token = (
         AccessToken(settings.livekit_api_key, settings.livekit_api_secret)
