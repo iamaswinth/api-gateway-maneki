@@ -13,7 +13,9 @@ from ..config import settings
 
 def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(
-        base_url=settings.ingestion_base_url, timeout=settings.ingestion_timeout_seconds
+        base_url=settings.ingestion_base_url,
+        timeout=settings.ingestion_timeout_seconds,
+        headers={"Authorization": f"Bearer {settings.ingestion_internal_token}"},
     )
 
 

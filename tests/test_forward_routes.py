@@ -17,11 +17,15 @@ from app.tenants import store
 from app.tenants.models import TenantCreate
 
 INGESTION_BASE = "http://ingestion.test"
+INGESTION_INTERNAL_TOKEN = "test-ingestion-internal-token"
 
 
 @pytest.fixture(autouse=True)
 def patch_ingestion_base(monkeypatch):
     monkeypatch.setattr(config_module.settings, "ingestion_base_url", INGESTION_BASE)
+    monkeypatch.setattr(
+        config_module.settings, "ingestion_internal_token", INGESTION_INTERNAL_TOKEN
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -65,6 +69,9 @@ async def test_scrape_forward_injects_tenant_id_and_ignores_spoofed_one():
     assert route.called
     forwarded = json.loads(route.calls[0].request.content)
     assert forwarded["tenant_id"] == "acme"
+    assert (
+        route.calls[0].request.headers["Authorization"] == f"Bearer {INGESTION_INTERNAL_TOKEN}"
+    )
 
 
 @respx.mock

@@ -1,5 +1,7 @@
 """app/ratelimit/sessions.py in isolation, against fakeredis."""
 
+import asyncio
+
 import pytest
 from fakeredis.aioredis import FakeRedis
 
@@ -36,13 +38,24 @@ async def test_room_finished_on_unknown_room_is_noop(redis):
     assert await sessions.active_count(redis, "acme") == 0
 
 
-async def test_stale_entry_evicted_by_ttl_guard(monkeypatch, redis):
-    current_time = [1_000_000.0]
-    monkeypatch.setattr(sessions.time, "time", lambda: current_time[0])
-    monkeypatch.setattr(config_module.settings, "active_session_ttl_seconds", 100)
+async def test_different_tenants_have_independent_counts(redis):
+    await sessions.mark_room_started(redis, "acme", "room1")
+    await sessions.mark_room_started(redis, "other-tenant", "room1")
+    assert await sessions.active_count(redis, "acme") == 1
+    assert await sessions.active_count(redis, "other-tenant") == 1
+
+    await sessions.mark_room_finished(redis, "acme", "room1")
+    assert await sessions.active_count(redis, "acme") == 0
+    assert await sessions.active_count(redis, "other-tenant") == 1
+
+
+async def test_stale_entry_self_heals_via_native_redis_ttl(monkeypatch, redis):
+    # Redis expires the key on its own — no app-code eviction check has to
+    # run for a missed room_finished to self-heal.
+    monkeypatch.setattr(config_module.settings, "active_session_ttl_seconds", 1)
 
     await sessions.mark_room_started(redis, "acme", "room1")
     assert await sessions.active_count(redis, "acme") == 1
 
-    current_time[0] += 200
+    await asyncio.sleep(1.2)
     assert await sessions.active_count(redis, "acme") == 0

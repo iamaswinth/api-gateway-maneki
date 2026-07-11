@@ -1,37 +1,36 @@
 """Active concurrent-session counting for max_concurrent_sessions enforcement.
 
-Backed by a per-tenant Redis hash (room_name -> started_at timestamp) rather
-than a plain counter, so a duplicate room_started webhook delivery is
-naturally idempotent (re-setting the same field), and `active_count` lazily
-evicts any room whose entry has outlived settings.active_session_ttl_seconds
-— a reconcile guard against a missed room_finished webhook permanently
-holding a tenant's concurrency slot.
+One Redis key per active room, with a native `EX` expiry
+(settings.active_session_ttl_seconds) — so a missed room_finished webhook
+self-heals because Redis itself reaps the key, not because app code happens
+to run an eviction check. `mark_room_started` is naturally idempotent: a
+duplicate room_started delivery just re-issues SET ... EX on the same key,
+resetting the TTL rather than double-counting.
 """
-
-import time
 
 from redis.asyncio import Redis
 
 from ..config import settings
 
 
-def _key(tenant_id: str) -> str:
-    return f"sessions:active:{tenant_id}"
+def _key(tenant_id: str, room_name: str) -> str:
+    return f"sessions:active:{tenant_id}:{room_name}"
+
+
+def _pattern(tenant_id: str) -> str:
+    return f"sessions:active:{tenant_id}:*"
 
 
 async def active_count(redis: Redis, tenant_id: str) -> int:
-    key = _key(tenant_id)
-    cutoff = time.time() - settings.active_session_ttl_seconds
-    entries = await redis.hgetall(key)
-    stale = [room for room, started_at in entries.items() if float(started_at) < cutoff]
-    if stale:
-        await redis.hdel(key, *stale)
-    return len(entries) - len(stale)
+    count = 0
+    async for _ in redis.scan_iter(match=_pattern(tenant_id), count=100):
+        count += 1
+    return count
 
 
 async def mark_room_started(redis: Redis, tenant_id: str, room_name: str) -> None:
-    await redis.hset(_key(tenant_id), room_name, str(time.time()))
+    await redis.set(_key(tenant_id, room_name), "1", ex=settings.active_session_ttl_seconds)
 
 
 async def mark_room_finished(redis: Redis, tenant_id: str, room_name: str) -> None:
-    await redis.hdel(_key(tenant_id), room_name)
+    await redis.delete(_key(tenant_id, room_name))

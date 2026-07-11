@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # Ingestion service, for authenticated forwarding (app/forward/).
     ingestion_base_url: str = "http://localhost:8000"
     ingestion_timeout_seconds: float = 10.0
+    # Shared service-to-service secret ingestion requires from any internal
+    # caller (this gateway and the voice runtime both present it) — locks
+    # ingestion's otherwise-unauthenticated endpoints to sanctioned callers.
+    ingestion_internal_token: str = ""
 
     # Widget token issuance.
     token_rate_limit_per_minute: int = 30
