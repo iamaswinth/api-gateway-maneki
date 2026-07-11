@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from .db import close_pool, get_pool
 from .forward.routes import router as forward_router
+from .internal.routes import router as internal_router
 from .redis_client import close_redis, get_redis
 from .tenants.routes import router as tenants_router
 from .webhooks.routes import router as webhooks_router
@@ -24,6 +25,7 @@ app.include_router(tenants_router)
 app.include_router(widget_router)
 app.include_router(webhooks_router)
 app.include_router(forward_router)
+app.include_router(internal_router)
 
 
 @app.get("/health")
