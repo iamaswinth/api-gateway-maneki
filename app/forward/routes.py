@@ -29,7 +29,17 @@ async def _require_owned_tenant(tenant_id: str, owner: OwnerIdentity) -> None:
 
 
 def _passthrough(resp: httpx.Response) -> JSONResponse:
-    return JSONResponse(status_code=resp.status_code, content=resp.json())
+    try:
+        content = resp.json()
+    except ValueError:
+        # A proxy/LB in front of ingestion, or ingestion crashing outright,
+        # can return a non-JSON body on error (an HTML error page, or empty
+        # content on a timeout) — surface the real upstream status instead
+        # of letting this throw and masking it behind an opaque 500.
+        content = {
+            "detail": f"Ingestion service returned a non-JSON response (status {resp.status_code})"
+        }
+    return JSONResponse(status_code=resp.status_code, content=content)
 
 
 @router.post("/scrape/{tenant_id}")

@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import close_pool, get_pool
@@ -45,6 +45,61 @@ app.include_router(forward_router)
 app.include_router(internal_router)
 
 
+async def _db_reachable() -> bool:
+    try:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.fetchval("SELECT 1")
+        return True
+    except Exception:
+        return False
+
+
+async def _redis_reachable() -> bool:
+    try:
+        await get_redis().ping()
+        return True
+    except Exception:
+        return False
+
+
 @app.get("/health")
 async def health() -> dict:
+    """Full diagnostic view for humans/dashboards — not a routing signal,
+    so a downed dependency reports "degraded" at 200, not 503. Point
+    orchestrator probes at /health/live and /health/ready instead."""
+    db_ok = await _db_reachable()
+    redis_ok = await _redis_reachable()
+    return {
+        "status": "ok" if db_ok and redis_ok else "degraded",
+        "database_reachable": db_ok,
+        "redis_reachable": redis_ok,
+    }
+
+
+@app.get("/health/live")
+async def health_live() -> dict:
+    """Liveness: no dependency checks, ever. Proves only that the process
+    is up and the event loop is responsive. A k8s liveness probe must never
+    depend on a downstream service — a transient DB/Redis blip would make
+    k8s kill and restart an otherwise-healthy pod, which doesn't fix the
+    dependency and can trigger a restart storm. See /health/ready for the
+    dependency-aware check."""
     return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def health_ready(response: Response) -> dict:
+    """Readiness: pings the real Postgres pool and Redis. Point the load
+    balancer / k8s readiness probe here — routing traffic to a worker that
+    can't reach its DB or Redis just turns every request into a 500."""
+    db_ok = await _db_reachable()
+    redis_ok = await _redis_reachable()
+    ok = db_ok and redis_ok
+    if not ok:
+        response.status_code = 503
+    return {
+        "status": "ok" if ok else "down",
+        "database_reachable": db_ok,
+        "redis_reachable": redis_ok,
+    }

@@ -37,6 +37,12 @@ class Settings(BaseSettings):
 
     # Widget token issuance.
     token_rate_limit_per_minute: int = 30
+    # Global per-client-IP admission cap on POST /widget/token, checked
+    # before any tenant lookup. Unlike token_rate_limit_per_minute (keyed by
+    # site_id, an attacker-chosen value that costs nothing to rotate), this
+    # bounds request volume from one source regardless of how many distinct
+    # site_ids it cycles through.
+    widget_token_ip_rate_limit_per_minute: int = 60
     tenant_config_cache_seconds: int = 60
     widget_token_ttl_seconds: int = 600
 

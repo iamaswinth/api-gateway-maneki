@@ -1,25 +1,24 @@
-"""Per-tenant sliding-window rate limit for widget token issuance, backed by
-Redis. Deliberately isolated from the token endpoint so it's testable
-against fakeredis without a live Redis server (see tests/test_limiter.py).
+"""Generic sliding-window rate limit, backed by Redis. Dimension-agnostic —
+callers build the key (e.g. "token:{site_id}" for per-tenant limits,
+"ip:{client_ip}" for a global per-client admission check) and pass an
+explicit limit, since different dimensions have different budgets. Isolated
+from any endpoint so it's testable against fakeredis without a live Redis
+server (see tests/test_limiter.py).
 """
 
 import time
 import uuid
-from typing import Optional
 
 from redis.asyncio import Redis
-
-from ..config import settings
 
 WINDOW_SECONDS = 60
 
 
-async def check_and_increment(redis: Redis, site_id: str, limit: Optional[int] = None) -> bool:
-    """Records one request for `site_id` and returns whether it's allowed
-    under `limit` requests per WINDOW_SECONDS (default: settings value).
-    Sliding-window log via a Redis sorted set, scored by request time."""
-    limit = limit if limit is not None else settings.token_rate_limit_per_minute
-    key = f"ratelimit:token:{site_id}"
+async def check_and_increment(redis: Redis, key: str, limit: int) -> bool:
+    """Records one request for `key` and returns whether it's allowed under
+    `limit` requests per WINDOW_SECONDS. Sliding-window log via a Redis
+    sorted set, scored by request time."""
+    key = f"ratelimit:{key}"
     now = time.time()
     window_start = now - WINDOW_SECONDS
     member = f"{now}:{uuid.uuid4()}"

@@ -189,6 +189,24 @@ async def test_approve_sales_script_rejects_non_owner_before_any_outbound_call()
 
 
 @respx.mock
+async def test_non_json_upstream_response_surfaces_real_status_not_500():
+    # A proxy/LB in front of ingestion (or ingestion crashing outright) can
+    # return a non-JSON body on error — an HTML 502 page, or empty content
+    # on a 504. _passthrough must not crash on that: it should surface
+    # ingestion's real status code, not mask it behind an opaque 500.
+    await _seed_tenant()
+    respx.post(f"{INGESTION_BASE}/scrape").mock(
+        return_value=Response(502, text="<html>Bad Gateway</html>")
+    )
+    async with client_as("owner-a") as client:
+        resp = await client.post(
+            "/forward/scrape/acme", json={"url": "https://acme.example.com"}
+        )
+    assert resp.status_code == 502
+    assert resp.json()["detail"]
+
+
+@respx.mock
 async def test_approve_sales_script_forwards_for_owner():
     await _seed_tenant()
     route = respx.post(f"{INGESTION_BASE}/sales-script/acme/approve").mock(

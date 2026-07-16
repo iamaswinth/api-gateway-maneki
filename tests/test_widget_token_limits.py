@@ -25,9 +25,9 @@ def patch_livekit_creds(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def clear_cache():
+async def clear_cache():
     yield
-    invalidate_tenant_cache("acme")
+    await invalidate_tenant_cache("acme")
 
 
 async def _seed_tenant(max_concurrent_sessions: int = 10) -> None:
@@ -40,7 +40,7 @@ async def _seed_tenant(max_concurrent_sessions: int = 10) -> None:
         ),
     )
     await store.set_published("acme", "owner-a", True)
-    invalidate_tenant_cache("acme")
+    await invalidate_tenant_cache("acme")
 
 
 async def _request_token():
@@ -78,3 +78,29 @@ async def test_token_issuance_does_not_itself_consume_a_concurrency_slot():
     # LiveKit room_started webhook does — so a second request still succeeds
     # until a room actually starts.
     assert (await _request_token()).status_code == 200
+
+
+async def test_ip_limit_throttles_flood_of_never_repeated_site_ids(monkeypatch):
+    # The vulnerability this closes: a site_id-keyed limiter does nothing
+    # against a flood that never repeats a site_id (every request gets a
+    # fresh, empty bucket), and get_cached_tenant does a real DB query on
+    # every miss. Confirm the *global per-IP* check throttles this even
+    # though not one of these site_ids is ever reused, and even though none
+    # of them belong to a real tenant (so the per-site_id check further down
+    # is never even reached).
+    monkeypatch.setattr(config_module.settings, "widget_token_ip_rate_limit_per_minute", 5)
+
+    statuses = []
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        for i in range(8):
+            resp = await client.post(
+                "/widget/token",
+                json={"site_id": f"never-repeated-{i}"},
+                headers={"Origin": ALLOWED_ORIGIN},
+            )
+            statuses.append(resp.status_code)
+
+    # First 5 pass the IP gate and fall through to "unknown tenant" (403);
+    # the rest never even get that far.
+    assert statuses[:5] == [403] * 5
+    assert statuses[5:] == [429] * 3

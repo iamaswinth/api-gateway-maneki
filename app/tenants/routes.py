@@ -40,7 +40,7 @@ async def update(
     tenant = await store.update_tenant(tenant_id, owner.user_id, data)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
-    invalidate_tenant_cache(tenant_id)
+    await invalidate_tenant_cache(tenant_id)
     return tenant
 
 
@@ -51,7 +51,7 @@ async def publish(
     tenant = await store.set_published(tenant_id, owner.user_id, True)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
-    invalidate_tenant_cache(tenant_id)
+    await invalidate_tenant_cache(tenant_id)
     return tenant
 
 
@@ -62,5 +62,5 @@ async def unpublish(
     tenant = await store.set_published(tenant_id, owner.user_id, False)
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found")
-    invalidate_tenant_cache(tenant_id)
+    await invalidate_tenant_cache(tenant_id)
     return tenant

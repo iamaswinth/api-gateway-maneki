@@ -9,7 +9,7 @@ never joined doesn't consume a tenant's concurrency slot.
 
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from ..config import settings
@@ -36,16 +36,30 @@ class WidgetTokenResponse(BaseModel):
 
 @router.post("/token", response_model=WidgetTokenResponse)
 async def issue_widget_token(
-    data: WidgetTokenRequest, origin: Optional[str] = Header(default=None)
+    data: WidgetTokenRequest, request: Request, origin: Optional[str] = Header(default=None)
 ) -> WidgetTokenResponse:
+    redis = get_redis()
+
+    # Global per-IP admission check, ahead of any tenant lookup. site_id is
+    # attacker-controlled request-body input — a limiter keyed by site_id
+    # (below) does nothing against a flood that never repeats one, since
+    # each new site_id gets a fresh, empty bucket. This one is keyed by the
+    # client instead, so it can't be bypassed just by rotating site_id.
+    client_ip = request.client.host if request.client else "unknown"
+    if not await limiter.check_and_increment(
+        redis, f"ip:{client_ip}", settings.widget_token_ip_rate_limit_per_minute
+    ):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
     tenant = await get_cached_tenant(data.site_id)
     if tenant is None or not tenant.published:
         raise HTTPException(status_code=403, detail="Site not published")
     if origin != tenant.allowed_origin:
         raise HTTPException(status_code=403, detail="Origin not allowed")
 
-    redis = get_redis()
-    if not await limiter.check_and_increment(redis, data.site_id):
+    if not await limiter.check_and_increment(
+        redis, f"token:{data.site_id}", settings.token_rate_limit_per_minute
+    ):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
     active = await sessions.active_count(redis, data.site_id)

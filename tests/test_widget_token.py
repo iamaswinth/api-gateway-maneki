@@ -13,6 +13,7 @@ from app import config as config_module
 from app.main import app
 from app.tenants import store
 from app.tenants.models import TenantCreate
+from app.widget.tenant_cache import get_cached_tenant
 from app.widget.tenant_cache import invalidate as invalidate_tenant_cache
 
 ALLOWED_ORIGIN = "https://acme.example.com"
@@ -26,9 +27,9 @@ def patch_livekit_creds(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def clear_cache():
+async def clear_cache():
     yield
-    invalidate_tenant_cache("acme")
+    await invalidate_tenant_cache("acme")
 
 
 async def _make_client() -> AsyncClient:
@@ -42,7 +43,7 @@ async def _seed_tenant(published: bool, allowed_origin: str = ALLOWED_ORIGIN) ->
     )
     if published:
         await store.set_published("acme", "owner-a", True)
-    invalidate_tenant_cache("acme")
+    await invalidate_tenant_cache("acme")
 
 
 async def test_unpublished_tenant_rejected():
@@ -135,6 +136,24 @@ async def test_missing_session_id_omitted_from_dispatch_metadata():
     )
     metadata = json.loads(claims["roomConfig"]["agents"][0]["metadata"])
     assert "session_id" not in metadata
+
+
+async def test_unpublish_invalidation_visible_without_ttl_wait():
+    # The bug this cache exists to avoid: worker A caches "published", then
+    # worker B runs the actual unpublish mutation + invalidate. Worker A's
+    # very next read must reflect that immediately, not after
+    # tenant_config_cache_seconds elapses — a Redis DELETE from worker B is
+    # visible to worker A because both talk to the same Redis, unlike an
+    # in-process dict clear.
+    await _seed_tenant(published=True)
+    cached = await get_cached_tenant("acme")
+    assert cached is not None and cached.published is True
+
+    await store.set_published("acme", "owner-a", False)
+    await invalidate_tenant_cache("acme")
+
+    cached_again = await get_cached_tenant("acme")
+    assert cached_again is not None and cached_again.published is False
 
 
 async def test_cors_preflight_allows_arbitrary_origin():

@@ -23,7 +23,15 @@ def _dsn_with_schema() -> str:
 
 
 async def _init_connection(conn: asyncpg.Connection) -> None:
-    await conn.execute(f"CREATE SCHEMA IF NOT EXISTS {settings.db_schema}")
+    try:
+        await conn.execute(f"CREATE SCHEMA IF NOT EXISTS {settings.db_schema}")
+    except asyncpg.exceptions.UniqueViolationError:
+        # Multiple uvicorn workers (or replicas) can each open their pool's
+        # first connection at once — IF NOT EXISTS's existence check isn't
+        # atomic across concurrent sessions, so two can both decide the
+        # schema is missing and race to create it. Losing that race is
+        # harmless: the schema exists either way.
+        pass
     # Transparent jsonb <-> Python dict roundtrip (greeting, crm_integration),
     # same pattern as the ingestion service's app/db.py.
     await conn.set_type_codec(
