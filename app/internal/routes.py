@@ -1,6 +1,12 @@
 """Internal, service-token-protected tenant-config read for the voice
-runtime — not internet-reachable in production (network isolation +
-the token check here, defense in depth per CLAUDE.md's standing rule).
+runtime. The token check here (app/auth/internal.py) is the *only*
+control protecting this endpoint — it's mounted on the same FastAPI app
+and port as the public widget/tenant routes (see app/main.py), with no
+network-level isolation enforced anywhere in this codebase or its
+deployment config. Don't describe or rely on isolation that hasn't
+actually been built. What is real: CLAUDE.md's standing rule that no
+credential from one trust level (owner JWT, widget token, this internal
+token) may satisfy another's check.
 
 Unknown tenant is a 404, not a soft default — preserves the hard-fail
 `TenantNotFoundError` semantics `voice_runtime/tenant_config.py` already
